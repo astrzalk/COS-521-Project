@@ -103,7 +103,7 @@ class eight_layer_nn(nn.Module):
         elif init_type == 'balanced':
             # Sample A as a D_out by D_in Normal matrix
             A = torch.empty(1, 128)
-            nn.init.normal_(A, self.mu, self.s)
+            nn.init.normal_(A, 0, self.s)
 
             # Same as in three layer_nn
             U = torch.zeros(1, 32)
