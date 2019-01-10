@@ -118,7 +118,12 @@ class eight_layer_nn(nn.Module):
 
             self.layer_1 = nn.Linear(128, 32)
             self.layer_2 = nn.Linear(32, 32)
-            self.layer_3 = nn.Linear(32, 1)
+            self.layer_3 = nn.Linear(32, 32)
+            self.layer_4 = nn.Linear(32, 32)
+            self.layer_5 = nn.Linear(32, 32)
+            self.layer_6 = nn.Linear(32, 32)
+            self.layer_7 = nn.Linear(32, 32)
+            self.layer_8 = nn.Linear(32, 1)
             # Layer 1: S^{1/3} * V.T; 32 by 128
             self.layer_1.weight.data = S @ V.transpose(0,1)
             # Layers 2-7: S^{1/3}; 32 by 32
