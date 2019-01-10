@@ -178,7 +178,7 @@ def train(model, loss_fn, X, y, learning_rate, eps=1e-5, verbose=False):
     """
     loss = np.inf
     num_iter = 0
-    while torch.abs(loss) > eps: # I THINK THIS IS THE BUG
+    while loss > eps: # I THINK THIS IS THE BUG
         W = model() # W_N * W_{N - 1} * ... * W_1
 
         # Compute and print loss. We pass Tensors containing the predicted and true
