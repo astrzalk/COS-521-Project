@@ -22,11 +22,40 @@ class three_layer_nn(nn.Module):
             self.layer_1 = nn.Linear(128, 32)
             self.layer_2 = nn.Linear(32, 32)
             self.layer_3 = nn.Linear(32, 1)
-            torch.nn.init.normal_(self.layer_1.weight, self.mu, self.s)
-            torch.nn.init.normal_(self.layer_2.weight, self.mu, self.s)
-            torch.nn.init.normal_(self.layer_3.weight, self.mu, self.s)
+            nn.init.normal_(self.layer_1.weight, self.mu, self.s)
+            nn.init.normal_(self.layer_2.weight, self.mu, self.s)
+            nn.init.normal_(self.layer_3.weight, self.mu, self.s)
         elif init_type == 'balanced':
-            raise NotImplementedError
+            # Sample A as a D_out by D_in Normal matrix
+            A = torch.empty(1, 128)
+            nn.init.normal_(A, self.mu, self.s)
+
+            # Do SVD by hand for vector is easy
+            # Check out:
+            #https://math.stackexchange.com/questions/1181800/
+            #singular-value-decomposition-of-column-row-vectors
+            # U and V are swapped, the below is Economically SVD
+            # Padded with zeros as in the paper
+            U = torch.zeros(1, 32)
+            U[0, 0] = 1.0 # be careful for type
+
+            S = torch.zeros(32, 32)
+            s_1 = torch.norm(A).pow(1 / 3)
+            S[0, 0] = s_1
+
+            V = torch.zeros(128, 32)
+            V[:, 0] = A / torch.norm(A)
+
+            self.layer_1 = nn.Linear(128, 32)
+            self.layer_2 = nn.Linear(32, 32)
+            self.layer_3 = nn.Linear(32, 1)
+            # Layer 1: S^{1/3} * V.T; 32 by 128
+            self.layer_1.weight.data = S @ V.transpose(0,1)
+            # Layer 2: S^{1/3}; 32 by 32
+            self.layer_2.weight.data = S
+            # Layer 3: U * S^{1/3}; 1 by 32
+            self.layer_3.weight.data = U @ S
+
         if self.do_drop:
             self.p = p
             self.drop = nn.Dropout(self.p)
@@ -72,7 +101,35 @@ class eight_layer_nn(nn.Module):
             torch.nn.init.normal_(self.layer_7.weight, 0, self.s)
             torch.nn.init.normal_(self.layer_8.weight, 0, self.s)
         elif init_type == 'balanced':
-            raise NotImplementedError
+            # Sample A as a D_out by D_in Normal matrix
+            A = torch.empty(1, 128)
+            nn.init.normal_(A, self.mu, self.s)
+
+            # Same as in three layer_nn
+            U = torch.zeros(1, 32)
+            U[0, 0] = 1.0 # be careful for type
+
+            S = torch.zeros(32, 32)
+            s_1 = torch.norm(A).pow(1 / 8)
+            S[0, 0] = s_1
+
+            V = torch.zeros(128, 32)
+            V[:, 0] = A / torch.norm(A)
+
+            self.layer_1 = nn.Linear(128, 32)
+            self.layer_2 = nn.Linear(32, 32)
+            self.layer_3 = nn.Linear(32, 1)
+            # Layer 1: S^{1/3} * V.T; 32 by 128
+            self.layer_1.weight.data = S @ V.transpose(0,1)
+            # Layers 2-7: S^{1/3}; 32 by 32
+            self.layer_2.weight.data = S
+            self.layer_3.weight.data = S
+            self.layer_4.weight.data = S
+            self.layer_5.weight.data = S
+            self.layer_6.weight.data = S
+            self.layer_7.weight.data = S
+            # Layer 3: U * S^{1/3}; 1 by 32
+            self.layer_8.weight.data = U @ S
 
         if self.do_drop:
             self.p = p
@@ -108,7 +165,7 @@ class fro_loss(nn.Module):
         loss = 0.5 * torch.norm(W - cross_cov).pow(2) # Since output_dim is 1 fro norm becomes l2-norm
         return loss
 
-def train(model, loss_fn, X, y, learning_rate, eps, global_opt, verbose=False):
+def train(model, loss_fn, X, y, learning_rate, global_opt, eps=1e-11, verbose=False):
     """
     model         : Type = torch.nn.Module; the neural net model already initialized
     loss_fn       : Type = torch.nn.Module (technically); just the loss function
@@ -150,7 +207,7 @@ def train(model, loss_fn, X, y, learning_rate, eps, global_opt, verbose=False):
                 param.data -= learning_rate * param.grad
 
         num_iter += 1
-        if num_iter > 1e5: # Breaks training if it takes too long to converge
+        if num_iter > 1e6: # Breaks training if it takes too long to converge
             break
     return num_iter, loss
 
