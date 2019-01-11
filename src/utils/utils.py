@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# Copy and Pasted this code from:
+# https://stackoverflow.com/questions/4197805/python-for-loop-look-ahead
 from itertools import tee, islice, zip_longest
 
 def get_next(some_iterable, window=1):
