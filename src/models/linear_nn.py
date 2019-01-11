@@ -4,6 +4,10 @@
 import torch
 import torch.nn as nn
 import numpy as np
+import sys
+sys.path.append('../src/utils/')
+from utils import get_next
+
 
 class three_layer_nn(nn.Module):
     """
@@ -170,6 +174,24 @@ class fro_loss(nn.Module):
         loss = 0.5 * torch.norm(W - cross_cov).pow(2) # Since output_dim is 1 fro norm becomes l2-norm
         return loss
 
+def get_delta(weight_mats):
+    """
+    :weight_mats: A list of weight matrices for each layer in the neural net.
+
+    :returns: delta: the balancedness value, i.e. minimum delta such that
+    \norm{W_{j+1}^TW_{j+1} - W_jW_j^T}_F \leq \delta
+    """
+    delta = -np.inf
+    for W_first, W_second in get_next(weight_mats):
+        if W_second is None:
+            break
+        diff = W_second.transpose(0, 1) @ W_second -\
+               W_first @ W_first.transpose(0, 1)
+        balance_val = torch.norm(diff)
+        if delta < balance_val:
+            delta = balance_val
+    return delta
+
 def train(model, loss_fn, X, y, learning_rate, eps=1e-5, verbose=False):
     """
     model         : Type = torch.nn.Module; the neural net model already initialized
@@ -183,7 +205,13 @@ def train(model, loss_fn, X, y, learning_rate, eps=1e-5, verbose=False):
     """
     loss = np.inf
     num_iter = 0
-    while loss > eps: # I THINK THIS IS THE BUG
+    deltas = []
+    while loss > eps:
+        # Get Balancedness value by iterating through the weights
+        weight_mats = [layer.weight.data for layer in model.children()]
+        delta = get_delta(weight_mats)
+        deltas.append(delta)
+
         W = model() # W_N * W_{N - 1} * ... * W_1
 
         # Compute and print loss. We pass Tensors containing the predicted and true
@@ -214,5 +242,6 @@ def train(model, loss_fn, X, y, learning_rate, eps=1e-5, verbose=False):
         num_iter += 1
         if num_iter > 1e6: # Breaks training if it takes too long to converge
             break
-    return num_iter, loss
+    return num_iter, loss, deltas
+
 
