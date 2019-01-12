@@ -181,16 +181,26 @@ def get_delta(weight_mats):
     :returns: delta: the balancedness value, i.e. minimum delta such that
     \norm{W_{j+1}^TW_{j+1} - W_jW_j^T}_F \leq \delta
     """
-    delta = -np.inf
+    # delta = -np.inf
+    delta = []
     for W_first, W_second in get_next(weight_mats):
         if W_second is None:
             break
         diff = W_second.transpose(0, 1) @ W_second -\
                W_first @ W_first.transpose(0, 1)
         balance_val = torch.norm(diff)
-        if delta < balance_val:
-            delta = balance_val
+        # if delta < balance_val:
+        #     delta = balance_val
+        delta.append(balance_val)
     return delta
+
+def get_min_layer_norm(weight_mats):
+    min_layer_norm = np.inf
+    for W in weight_mats:
+        layer_norm = torch.norm(W @ W.transpose(0,1))
+        if layer_norm < min_layer_norm:
+            min_layer_norm = layer_norm
+    return min_layer_norm
 
 def train(model, loss_fn, X, y, learning_rate, eps=1e-5, verbose=False):
     """
@@ -206,11 +216,14 @@ def train(model, loss_fn, X, y, learning_rate, eps=1e-5, verbose=False):
     loss = np.inf
     num_iter = 0
     deltas = []
+    min_l_norms = []
     while loss > eps:
         # Get Balancedness value by iterating through the weights
         weight_mats = [layer.weight.data for layer in model.children()]
         delta = get_delta(weight_mats)
         deltas.append(delta)
+        min_l_norm = get_min_layer_norm(weight_mats)
+        min_l_norms.append(min_l_norm)
 
         W = model() # W_N * W_{N - 1} * ... * W_1
 
@@ -242,6 +255,6 @@ def train(model, loss_fn, X, y, learning_rate, eps=1e-5, verbose=False):
         num_iter += 1
         if num_iter > 1e6: # Breaks training if it takes too long to converge
             break
-    return num_iter, loss, deltas
+    return num_iter, loss, deltas, min_l_norms
 
 
