@@ -13,7 +13,7 @@ def main():
     X_white = PCA(whiten=True).fit_transform(X_raw)
 
     # Rescale labels to make Frobenius norm equal to 1 (or very close)
-    cross_cov = (1 / y_raw.shape[0]) * (y_raw.T.dot(X_raw))
+    cross_cov = (1 / y_raw.shape[0]) * (y_raw.T.dot(X_white))
     fro_norm = np.linalg.norm(cross_cov, ord='fro')
     y_scaled = y_raw / fro_norm # This is quite close to \fro_norm{cross_cov} \approx 1
 
