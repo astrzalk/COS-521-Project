@@ -4,160 +4,63 @@
 import torch
 import torch.nn as nn
 import numpy as np
-import sys
-sys.path.append('../src/utils/')
-from utils import get_next
+from matrix_helpers import balanced_init, independent_init
 
 
-class three_layer_nn(nn.Module):
-    """
-    A three layer linear nn with input, hidden and output dims
-    as specified in the paper 'A Convergence Analysis of Gradient Descent
-    for Deep Linear Neural Networks'.
-    Instead of outputing
-    """
+class LinearNet(nn.Module):
+    def __init__(self, layers, hidden_width, input_size, output_size, bias=False, p=0.0):
+        super(LinearNet, self).__init__()
+        self.num_layers = layers
+        self.width = hidden_width
+        self.output_size = output_size
+        self.input_size = input_size
+        self.dropout = nn.Dropout(p)
 
-    def __init__(self, init_type='normal', std=1, do_dropout=False, p=0.5):
-        super(three_layer_nn, self).__init__()
-        self.mu = 0
-        self.s = std
-        self.do_drop = do_dropout
-        if init_type == 'normal':
-            self.layer_1 = nn.Linear(128, 32)
-            self.layer_2 = nn.Linear(32, 32)
-            self.layer_3 = nn.Linear(32, 1)
-            nn.init.normal_(self.layer_1.weight, self.mu, self.s)
-            nn.init.normal_(self.layer_2.weight, self.mu, self.s)
-            nn.init.normal_(self.layer_3.weight, self.mu, self.s)
-        elif init_type == 'balanced':
-            # Sample A as a D_out by D_in Normal matrix
-            A = torch.empty(1, 128)
-            nn.init.normal_(A, self.mu, self.s)
+        self.layer_sizes = [input_size] + [self.width] * (self.num_layers - 1) + \
+                           [output_size]
+        layers = [[nn.Linear(self.layer_sizes[i], self.layer_sizes[i+1], bias=bias), self.dropout]
+                   for i in range(self.num_layers)]
+        # [:-1] : Quick hack to ensure dropout is only in between layers not at the end
+        self.layers = nn.ModuleList([item for sublist in layers for item in sublist][:-1])
 
-            # Do SVD by hand for vector is easy
-            # Check out:
-            #https://math.stackexchange.com/questions/1181800/
-            #singular-value-decomposition-of-column-row-vectors
-            # U and V are swapped, the below is Economically SVD
-            # Padded with zeros as in the paper
-            U = torch.zeros(1, 32)
-            U[0, 0] = 1.0 # be careful for type
+    # forward: do the computation for a linear net
+    def forward(self, x):
+        out = x
+        for i,l in enumerate(self.layers):
+            out = l(out)
+        return out.t()
 
-            S = torch.zeros(32, 32)
-            s_1 = torch.norm(A).pow(1 / 3)
-            S[0, 0] = s_1
+    # init_balanced: initialize weights according to
+    # "Balanced Initialization" scheme
+    def init_balanced(self, W, randomize=True):
+        W_arr = balanced_init(W, self.num_layers, self.width, randomize=randomize)
 
-            V = torch.zeros(128, 32)
-            V[:, 0] = A / torch.norm(A)
+        i = 0 # Internal counter to avoid dropout layers
+        for _,l in enumerate(self.layers):
+            if isinstance(l, nn.Linear):
+                l.weight.data = nn.Parameter(torch.tensor(W_arr[i]).to(torch.float))
+                i+=1
 
-            self.layer_1 = nn.Linear(128, 32)
-            self.layer_2 = nn.Linear(32, 32)
-            self.layer_3 = nn.Linear(32, 1)
-            # Layer 1: S^{1/3} * V.T; 32 by 128
-            self.layer_1.weight.data = S @ V.transpose(0,1)
-            # Layer 2: S^{1/3}; 32 by 32
-            self.layer_2.weight.data = S
-            # Layer 3: U * S^{1/3}; 1 by 32
-            self.layer_3.weight.data = U @ S
+    # init_unbalanced: initialize weights independently
+    def init_independent(self, scale):
+        W_arr, b_arr = independent_init(self.layer_sizes, scale)
 
-        if self.do_drop:
-            self.p = p
-            self.drop = nn.Dropout(self.p)
+        i = 0 # Internal counter to avoid dropout layers
+        for _,l in enumerate(self.layers):
+            if isinstance(l, nn.Linear):
+                l.weight.data = nn.Parameter(torch.tensor(W_arr[i]).to(torch.float))
+                i+=1
 
-    def forward(self):
-        W_1 = self.layer_1.weight
-        W_2 = self.layer_2.weight
-        W_3 = self.layer_3.weight
-        if self.do_drop:
-            W = self.drop(W_3) @ self.drop(W_2) @ self.drop(W_1) # only works in python 3.5+, @ = mat mul
-        else:
-            W = W_3 @ W_2 @ W_1 # only works in python 3.5+, @ = mat mul
+        return b_arr
 
-        return W
+    # get_wts: return the weight matrices of the linear network
+    def get_wts(self):
+        wts = []
+        for _,l in enumerate(self.layers):
+            if isinstance(l, nn.Linear):
+                wts.append(l.weight.data)
 
-class eight_layer_nn(nn.Module):
-    """
-    An eight layer linear nn with input, hidden and output dims
-    as specified in the paper 'A Convergence Analysis of Gradient Descent
-    for Deep Linear Neural Networks'.
-    Instead of outputing
-    """
-
-    def __init__(self, init_type='normal', std=1, do_dropout=False, p=0.5):
-        super(eight_layer_nn, self).__init__()
-        self.s = std
-        self.do_drop = do_dropout
-        if init_type == 'normal':
-            self.layer_1 = nn.Linear(128, 32)
-            self.layer_2 = nn.Linear(32, 32)
-            self.layer_3 = nn.Linear(32, 32)
-            self.layer_4 = nn.Linear(32, 32)
-            self.layer_5 = nn.Linear(32, 32)
-            self.layer_6 = nn.Linear(32, 32)
-            self.layer_7 = nn.Linear(32, 32)
-            self.layer_8 = nn.Linear(32, 1)
-            torch.nn.init.normal_(self.layer_1.weight, 0, self.s)
-            torch.nn.init.normal_(self.layer_2.weight, 0, self.s)
-            torch.nn.init.normal_(self.layer_3.weight, 0, self.s)
-            torch.nn.init.normal_(self.layer_4.weight, 0, self.s)
-            torch.nn.init.normal_(self.layer_5.weight, 0, self.s)
-            torch.nn.init.normal_(self.layer_6.weight, 0, self.s)
-            torch.nn.init.normal_(self.layer_7.weight, 0, self.s)
-            torch.nn.init.normal_(self.layer_8.weight, 0, self.s)
-        elif init_type == 'balanced':
-            # Sample A as a D_out by D_in Normal matrix
-            A = torch.empty(1, 128)
-            nn.init.normal_(A, 0, self.s)
-
-            # Same as in three layer_nn
-            U = torch.zeros(1, 32)
-            U[0, 0] = 1.0 # be careful for type
-
-            S = torch.zeros(32, 32)
-            s_1 = torch.norm(A).pow(1 / 8)
-            S[0, 0] = s_1
-
-            V = torch.zeros(128, 32)
-            V[:, 0] = A / torch.norm(A)
-
-            self.layer_1 = nn.Linear(128, 32)
-            self.layer_2 = nn.Linear(32, 32)
-            self.layer_3 = nn.Linear(32, 32)
-            self.layer_4 = nn.Linear(32, 32)
-            self.layer_5 = nn.Linear(32, 32)
-            self.layer_6 = nn.Linear(32, 32)
-            self.layer_7 = nn.Linear(32, 32)
-            self.layer_8 = nn.Linear(32, 1)
-            # Layer 1: S^{1/3} * V.T; 32 by 128
-            self.layer_1.weight.data = S @ V.transpose(0,1)
-            # Layers 2-7: S^{1/3}; 32 by 32
-            self.layer_2.weight.data = S
-            self.layer_3.weight.data = S
-            self.layer_4.weight.data = S
-            self.layer_5.weight.data = S
-            self.layer_6.weight.data = S
-            self.layer_7.weight.data = S
-            # Layer 3: U * S^{1/3}; 1 by 32
-            self.layer_8.weight.data = U @ S
-
-        if self.do_drop:
-            self.p = p
-            self.drop = nn.Dropout(self.p)
-
-    def forward(self):
-        if self.do_drop:
-            W_1, W_2 = self.drop(self.layer_1.weight), self.drop(self.layer_2.weight)
-            W_3, W_4 = self.drop(self.layer_3.weight), self.drop(self.layer_4.weight)
-            W_5, W_6 = self.drop(self.layer_5.weight), self.drop(self.layer_6.weight)
-            W_7, W_8 = self.drop(self.layer_7.weight), self.drop(self.layer_8.weight)
-            W = W_8 @ W_7 @ W_6 @ W_5 @ W_4 @ W_3 @ W_2 @ W_1 # only works in python 3.5+, @ = mat mul
-        else:
-            W_1, W_2 = self.layer_1.weight, self.layer_2.weight
-            W_3, W_4 = self.layer_3.weight, self.layer_4.weight
-            W_5, W_6 = self.layer_5.weight, self.layer_6.weight
-            W_7, W_8 = self.layer_7.weight, self.layer_8.weight
-            W = W_8 @ W_7 @ W_6 @ W_5 @ W_4 @ W_3 @ W_2 @ W_1
-        return W
+        return wts
 
 class fro_loss(nn.Module):
 
@@ -181,26 +84,25 @@ def get_delta(weight_mats):
     :returns: delta: the balancedness value, i.e. minimum delta such that
     \norm{W_{j+1}^TW_{j+1} - W_jW_j^T}_F \leq \delta
     """
-    # delta = -np.inf
-    delta = []
-    for W_first, W_second in get_next(weight_mats):
-        if W_second is None:
-            break
+    deltas = []
+    for ind, _ in enumerate(weight_mats):
+        if ind == 0:
+            continue
+        W_first = weight_mats[ind - 1]
+        W_second = weight_mats[ind]
+
         diff = W_second.transpose(0, 1) @ W_second -\
                W_first @ W_first.transpose(0, 1)
         balance_val = torch.norm(diff)
-        # if delta < balance_val:
-        #     delta = balance_val
-        delta.append(balance_val)
-    return delta
+        deltas.append(balance_val)
+    return deltas
 
-def get_min_layer_norm(weight_mats):
-    min_layer_norm = np.inf
+def get_layer_norms(weight_mats):
+    layer_norms = []
     for W in weight_mats:
         layer_norm = torch.norm(W @ W.transpose(0,1))
-        if layer_norm < min_layer_norm:
-            min_layer_norm = layer_norm
-    return min_layer_norm
+        layer_norms.append(layer_norm)
+    return layer_norms
 
 def train(model, loss_fn, X, y, learning_rate, eps=1e-5, verbose=False):
     """
@@ -215,17 +117,18 @@ def train(model, loss_fn, X, y, learning_rate, eps=1e-5, verbose=False):
     """
     loss = np.inf
     num_iter = 0
-    deltas = []
-    min_l_norms = []
+    deltas, l_norms = [], []
     while loss > eps:
         # Get Balancedness value by iterating through the weights
-        weight_mats = [layer.weight.data for layer in model.children()]
+        weight_mats = model.get_wts()
+
+        # weight_mats = [layer.weight.data for layer in model.children() if isinstance(layer, nn.Linear)]
         delta = get_delta(weight_mats)
         deltas.append(delta)
-        min_l_norm = get_min_layer_norm(weight_mats)
-        min_l_norms.append(min_l_norm)
+        l_norm = get_layer_norms(weight_mats)
+        l_norms.append(l_norm)
 
-        W = model() # W_N * W_{N - 1} * ... * W_1
+        W = model(torch.eye(128)) # W_N * W_{N - 1} * ... * W_1
 
         # Compute and print loss. We pass Tensors containing the predicted and true
         # values of y, and the loss function returns a Tensor containing the loss.
@@ -233,15 +136,7 @@ def train(model, loss_fn, X, y, learning_rate, eps=1e-5, verbose=False):
         if verbose:
             print(num_iter, loss.item())
 
-        # Zero the gradients before running the backward pass.
-        # In pytorch, gradients are accumulated with .backward(), hence,
-        # we need to zero them out each round
         model.zero_grad()
-
-        # Backward pass: compute gradient of the loss with respect to all the learnable
-        # parameters of the model. Internally, the parameters of each Module are stored
-        # in Tensors with requires_grad=True, so this call will compute gradients for
-        # all learnable parameters in the model.
         loss.backward()
 
         # Update the weights using gradient descent. Each parameter is a Tensor, so
@@ -255,6 +150,6 @@ def train(model, loss_fn, X, y, learning_rate, eps=1e-5, verbose=False):
         num_iter += 1
         if num_iter > 1e6: # Breaks training if it takes too long to converge
             break
-    return num_iter, loss, deltas, min_l_norms
-
-
+        if num_iter > 1e5:
+            print(num_iter, loss)
+    return num_iter, loss, deltas, l_norms
